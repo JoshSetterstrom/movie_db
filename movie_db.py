@@ -1,3 +1,4 @@
+from functools import reduce
 import time, requests, xmltodict, itertools, string, random, json
 from datetime import datetime
 from pymongo import MongoClient
@@ -8,9 +9,11 @@ start_time = datetime.now()
 
 class movie_db():
     def __init__(self):
-        self.col = MongoClient(config['db'])[config['col']][config['col_name']]
+        self.movie_col = MongoClient(config['db'])[config['movie_col']][config['movie_col_name']]
+        self.alert_col = MongoClient(config['db'])[config['alert_col']][config['alert_col_name']]
 
 
+    # Returns current runtime 
     def uptime(self, start_time):
         uptime = str(datetime.now() - start_time).split(':')
         uptime_day = (datetime.now() - start_time).days
@@ -23,19 +26,22 @@ class movie_db():
             f'{(uptime[2])[:2]} Seconds')
 
 
+    # Parse main XML sitemap then return movie URL's for each sub sitemap
     def get_movie_list(self, xml):
         request = xmltodict.parse(requests.get(xml['loc']).text)
 
         if not request: return Exception(f'Site returned {request.status_code}: {request.reason}')
 
+        # Filters titles that are not movies
         return list(filter(lambda url: 'movie/' in url, 
                     map(lambda url: url['loc'],
                     request['urlset']['url'])))
 
 
+    # Scrapes provided URL for movie data 
     def get_movie_item(self, url):
         try:
-            if self.col.find_one({'link': url}): return
+            if self.movie_col.find_one({'link': url}): return
             else:
                 request = requests.get(url)
                 soup = BeautifulSoup(request.text, features="lxml")
@@ -44,7 +50,7 @@ class movie_db():
                 date = div[1].text.split("Release: ")[1].split(" Director")[0]
                 imdb = self.get_imdb_link(name, date)
 
-                self.col.insert_one({
+                self.movie_col.insert_one({
                     "link": url,
                     "id": ''.join(random.choices(string.ascii_lowercase + string.digits, k=10)),
                     "name": soup.find("div", {"class":"info"}).text.split("  ")[0][1:],
@@ -59,9 +65,10 @@ class movie_db():
 
                 print(f'Added {name} to DB.')
         
-        except Exception as e: print(f'Caught Exception in get_imdb_link: {e}')
+        except Exception as e: print(f'Caught Exception in get_movie_item: {e}')
   
 
+    # Scrapes Google search for imdb links
     def get_imdb_link(self, movie, year):
         try:
             query = movie.replace(' ', '+')
@@ -76,14 +83,20 @@ class movie_db():
                 if not "imdb.com/title" in div.get('href'): pass
                 else: return ("https://" + div.get('href').split('https://')[1].split("&sa")[0])[:-1]
 
-            time.sleep(random.randint(2, 6)) ##To prevent too many searches at once and flag bot detection.
+            time.sleep(random.randint(2, 6)) ##To prevent bot detection.
 
         except Exception as e: 
             print(f'Caught Exception in get_imdb_link: {e}')
-            time.sleep(random.randint(2, 6)) ##To prevent too many searches at once and flag bot detection.
+            time.sleep(random.randint(2, 6)) ##To prevent bot detection.
             return "" 
 
+    # Flags entries that have no imdb link for manual entry
+    def validate_imdb(self):
+        for movie in self.movie_col:
+            if not movie['imdb']: self.alert_col.insert(movie)
 
+
+    # Retrieves all URL's from sitemap then updates movie_data not present in movie_db
     def update_movie_db(self):
         while True:
             print(f"\n\n---------------{time.strftime('%Y-%m-%d %H:%M')}---------------")
@@ -92,9 +105,10 @@ class movie_db():
             try:
                 xml_list   = xmltodict.parse(requests.get(f"https://www.bflix.to/sitemap.xml").text)
                 movie_list = list(itertools.chain.from_iterable(
-                            map(self.get_movie_list, (xml_list['sitemapindex']['sitemap'])[4:])))
+                             map(self.get_movie_list, (xml_list['sitemapindex']['sitemap'])[4:])))
 
                 for url in movie_list: self.get_movie_item(url)
+                self.validate_imdb()
 
                 time.sleep(300)
 
