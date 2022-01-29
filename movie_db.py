@@ -23,7 +23,7 @@ class movie_db():
             f'{uptime_day} Days '
             f'{uptime[0]} Hours '
             f'{int(uptime[1])} Minutes '
-            f'{(uptime[2])[:2]} Seconds')
+            f'{int((uptime[2])[:2])} Seconds')
 
 
     # Parse main XML sitemap then return movie URL's for each sub sitemap
@@ -49,15 +49,16 @@ class movie_db():
                 name = soup.find("div", {"class":"info"}).text.split("  ")[0][1:]
                 date = div[1].text.split("Release: ")[1].split(" Director")[0]
                 imdb = self.get_imdb_link(name, date)
+                if not imdb: imdb = self.get_imdb_link(name)
 
                 self.movie_col.insert_one({
                     "link": url,
                     "id": ''.join(random.choices(string.ascii_lowercase + string.digits, k=10)),
-                    "name": soup.find("div", {"class":"info"}).text.split("  ")[0][1:],
+                    "name": name,
                     "searchname": '-'.join(url.split("movie/")[1].split("-")[:-1]),
                     "country": div[1].text.split("Country:  ")[1].split("  Genre")[0],
                     "genres": div[1].text.split("Genre: ")[1].split("Release")[0].replace(' ', '').split(","),
-                    "year": div[1].text.split("Release: ")[1].split(" Director")[0],
+                    "year": date,
                     "director": div[1].text.split("Director: ")[1].split("  Production")[0],
                     "cast": div[1].text.split("Cast:  ")[1].split("  Tags")[0].split(", "),
                     "poster": str(soup.find("img", {"class":"poster"})).split('src="')[-1:][0].split('"')[0],
@@ -69,32 +70,30 @@ class movie_db():
   
 
     # Scrapes Google search for imdb links
-    def get_imdb_link(self, movie, year):
+    def get_imdb_link(self, movie, year=""):
         try:
             query = movie.replace(' ', '+')
-            request  = requests.get(f"https://www.google.com/search?q={query}+{year}+imdb")
+            if year:
+                request = requests.get(f"https://www.google.com/search?q={query}+{year}+imdb")
+            else:
+                request = requests.get(f"https://www.google.com/search?q={query}+imdb")
 
-            if not request: return Exception(f'Site returned {request.status_code}: {request.reason}')
+            if not request: 
+                return Exception(f'Site returned {request.status_code}: {request.reason}')
 
             soup = BeautifulSoup(request.text, features="lxml")
             divs = soup.find_all('a')
 
             for div in divs:
-                if not "imdb.com/title" in div.get('href'): pass
-                else: return ("https://" + div.get('href').split('https://')[1].split("&sa")[0])[:-1]
-
-            time.sleep(random.randint(2, 6)) ##To prevent bot detection.
+                if not "imdb.com/title" in div.get('href'): continue
+                else: 
+                    time.sleep(random.randint(2, 6)) ##To prevent bot detection.
+                    return ("https://" + div.get('href').split('https://')[1].split("&sa")[0])[:-1]
 
         except Exception as e: 
             print(f'Caught Exception in get_imdb_link: {e}')
             time.sleep(random.randint(2, 6)) ##To prevent bot detection.
             return "" 
-
-    # Flags entries that have no imdb link for manual entry
-    def validate_imdb(self):
-        for movie in self.movie_col:
-            if not movie['imdb']: self.alert_col.insert(movie)
-
 
     # Retrieves all URL's from sitemap then updates movie_data not present in movie_db
     def update_movie_db(self):
@@ -108,7 +107,8 @@ class movie_db():
                              map(self.get_movie_list, (xml_list['sitemapindex']['sitemap'])[4:])))
 
                 for url in movie_list: self.get_movie_item(url)
-                self.validate_imdb()
+
+                print('Scrape complete.')
 
                 time.sleep(300)
 
