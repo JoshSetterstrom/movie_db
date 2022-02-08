@@ -178,7 +178,7 @@ class moviedb():
                     int(x['year'][:4]) 
                 >= int(str(datetime.now())[:4])-1, self.movie_col.find({})))
 
-            for movie in movies:
+            for i, movie in enumerate(movies):
                 if not movie['imdb']: continue
                 
                 request = requests.get(movie['imdb'])
@@ -197,7 +197,7 @@ class moviedb():
                         {'id': movie['id']},
                         {'$set': {'rating': rating}})
 
-                    print(f'{movie["name"]} rating has been updated.')
+                    print(f'{i} of {len(movies)} | {movie["name"]} rating has been updated.')
                 except: 
                     time.sleep(random.randint(2, 5))
                     continue
