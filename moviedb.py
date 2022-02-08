@@ -1,12 +1,16 @@
 import time, requests, xmltodict, itertools, string, random, json, urllib
-from threading import Thread
-from functools import reduce
-from datetime import datetime
-from pymongo import MongoClient
-from bs4 import BeautifulSoup
 
-config = json.load(open('config.json', 'r'))
+
+from bs4       import BeautifulSoup
+from datetime  import datetime
+from functools import reduce
+from pymongo   import MongoClient
+from threading import Thread
+
+
+config     = json.load(open('config.json', 'r'))
 start_time = datetime.now()
+
 
 class moviedb():
     def __init__(self):
@@ -54,6 +58,8 @@ class moviedb():
 
                 if not imdb_info:
                     if self.flagged_col.find_one({'bflix': url}): return
+
+                    # Flag movies with no imdb link for manual entry
                     self.flagged_col.insert_one({
                         "bflix":      url,
                         "cast":       [],
@@ -133,10 +139,11 @@ class moviedb():
             return []
 
 
-    def get_movie_info(self, url):
+    # Scrapes IMDb for relevan movie info
+    def get_movie_info(self, imdb):
         try: 
-            if not url: return {}
-            request = requests.get(url)
+            if not imdb: return {}
+            request = requests.get(imdb)
 
             if not request: 
                 print(f'IMDb returned {request.status_code}: {request.reason}')
@@ -160,10 +167,11 @@ class moviedb():
                 'writer':   reduce(lambda x, y: self.get_names(x, y, 'Writer'), soup.find_all('span'), [])
             }
         except:
-            print(f'Unable to retrieve imdb data for {url}')
+            print(f'Unable to retrieve imdb data for {imdb}')
             return {}
 
 
+    # Updates IMDb ratings for movies in current and last year
     def update_rating(self):
         while True:
             movies = list(filter(lambda x: 
